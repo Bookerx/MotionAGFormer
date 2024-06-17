@@ -10,6 +10,7 @@ import torch.nn as nn
 import glob
 from tqdm import tqdm
 import copy
+import time
 
 sys.path.append(os.getcwd())
 from demo.lib.utils import normalize_screen_coordinates, camera_to_world
@@ -185,7 +186,7 @@ def flip_data(data, left_joints=[1, 2, 3, 14, 15, 16], right_joints=[4, 5, 6, 11
     return flipped_data
 
 @torch.no_grad()
-def get_pose3D(video_path, output_dir):
+def get_pose3D(video_path, output_dir, checkpoint_3D, frame_num, save_video):
     args, _ = argparse.ArgumentParser().parse_known_args()
     args.n_layers, args.dim_in, args.dim_feat, args.dim_rep, args.dim_out = 16, 3, 128, 512, 3
     args.mlp_ratio, args.act_layer = 4, nn.GELU
@@ -195,14 +196,15 @@ def get_pose3D(video_path, output_dir):
     args.hierarchical = False
     args.use_temporal_similarity, args.neighbour_num, args.temporal_connection_len = True, 2, 1
     args.use_tcn, args.graph_only = False, False
-    args.n_frames = 243
+    args.n_frames = frame_num
     args = vars(args)
 
     ## Reload 
     model = nn.DataParallel(MotionAGFormer(**args)).cuda()
 
     # Put the pretrained model of MotionAGFormer in 'checkpoint/'
-    model_path = sorted(glob.glob(os.path.join('checkpoint', 'motionagformer-b-h36m.pth.tr')))[0]
+    # model_path = sorted(glob.glob(os.path.join('checkpoint', 'motionagformer-b-h36m.pth.tr')))[0]
+    model_path = checkpoint_3D
 
     pre_dict = torch.load(model_path)
     model.load_state_dict(pre_dict['model'], strict=True)
@@ -210,7 +212,7 @@ def get_pose3D(video_path, output_dir):
     model.eval()
 
     ## input
-    keypoints = np.load(output_dir + 'input_2D/keypoints.npz', allow_pickle=True)['reconstruction']
+    keypoints = np.load(output_dir + 'input_2D/keypoints.npz', allow_pickle=True)['reconstruction'] #（1, frame_total, 17, 3)
     # keypoints = np.load('demo/lakeside3.npy')
     # keypoints = keypoints[:240]
     # keypoints = keypoints[None, ...]
@@ -241,6 +243,7 @@ def get_pose3D(video_path, output_dir):
 
     
     print('\nGenerating 3D pose...')
+    all_3d_keypoints = []
     for idx, clip in enumerate(clips):
         input_2D = normalize_screen_coordinates(clip, w=img_size[1], h=img_size[0]) 
         input_2D_aug = flip_data(input_2D)
@@ -259,12 +262,13 @@ def get_pose3D(video_path, output_dir):
         post_out_all = output_3D[0].cpu().detach().numpy()
         
         for j, post_out in enumerate(post_out_all):
-            rot =  [0.1407056450843811, -0.1500701755285263, -0.755240797996521, 0.6223280429840088]
+            rot = [0.1407056450843811, -0.1500701755285263, -0.755240797996521, 0.6223280429840088]
             rot = np.array(rot, dtype='float32')
             post_out = camera_to_world(post_out, R=rot, t=0)
             post_out[:, 2] -= np.min(post_out[:, 2])
             max_value = np.max(post_out)
             post_out /= max_value
+            all_3d_keypoints.append(post_out)
 
             fig = plt.figure(figsize=(9.6, 5.4))
             gs = gridspec.GridSpec(1, 1)
@@ -277,6 +281,7 @@ def get_pose3D(video_path, output_dir):
             str(('%04d'% (idx * 243 + j)))
             plt.savefig(output_dir_3D + str(('%04d'% (idx * 243 + j))) + '_3D.png', dpi=200, format='png', bbox_inches='tight')
             plt.close(fig)
+    np.savez_compressed(output_dir + 'all_3d_keypoints.npz', reconstruction=np.array(all_3d_keypoints))
         
 
         
@@ -286,36 +291,37 @@ def get_pose3D(video_path, output_dir):
     image_2d_dir = sorted(glob.glob(os.path.join(output_dir_2D, '*.png')))
     image_3d_dir = sorted(glob.glob(os.path.join(output_dir_3D, '*.png')))
 
-    print('\nGenerating demo...')
-    for i in tqdm(range(len(image_2d_dir))):
-        image_2d = plt.imread(image_2d_dir[i])
-        image_3d = plt.imread(image_3d_dir[i])
+    if save_video:
+        print('\nGenerating demo...')
+        for i in tqdm(range(len(image_2d_dir))):
+            image_2d = plt.imread(image_2d_dir[i])
+            image_3d = plt.imread(image_3d_dir[i])
 
-        ## crop
-        edge = (image_2d.shape[1] - image_2d.shape[0]) // 2
-        image_2d = image_2d[:, edge:image_2d.shape[1] - edge]
+            ## crop
+            edge = (image_2d.shape[1] - image_2d.shape[0]) // 2
+            image_2d = image_2d[:, edge:image_2d.shape[1] - edge]
 
-        edge = 130
-        image_3d = image_3d[edge:image_3d.shape[0] - edge, edge:image_3d.shape[1] - edge]
+            edge = 130
+            image_3d = image_3d[edge:image_3d.shape[0] - edge, edge:image_3d.shape[1] - edge]
 
-        ## show
-        font_size = 12
-        fig = plt.figure(figsize=(15.0, 5.4))
-        ax = plt.subplot(121)
-        showimage(ax, image_2d)
-        ax.set_title("Input", fontsize = font_size)
+            ## show
+            font_size = 12
+            fig = plt.figure(figsize=(15.0, 5.4))
+            ax = plt.subplot(121)
+            showimage(ax, image_2d)
+            ax.set_title("Input", fontsize = font_size)
 
-        ax = plt.subplot(122)
-        showimage(ax, image_3d)
-        ax.set_title("Reconstruction", fontsize = font_size)
+            ax = plt.subplot(122)
+            showimage(ax, image_3d)
+            ax.set_title("Reconstruction", fontsize = font_size)
 
-        ## save
-        output_dir_pose = output_dir +'pose/'
-        os.makedirs(output_dir_pose, exist_ok=True)
-        plt.subplots_adjust(top=1, bottom=0, right=1, left=0, hspace=0, wspace=0)
-        plt.margins(0, 0)
-        plt.savefig(output_dir_pose + str(('%04d'% i)) + '_pose.png', dpi=200, bbox_inches = 'tight')
-        plt.close(fig)
+            ## save
+            output_dir_pose = output_dir +'pose/'
+            os.makedirs(output_dir_pose, exist_ok=True)
+            plt.subplots_adjust(top=1, bottom=0, right=1, left=0, hspace=0, wspace=0)
+            plt.margins(0, 0)
+            plt.savefig(output_dir_pose + str(('%04d'% i)) + '_pose.png', dpi=200, bbox_inches = 'tight')
+            plt.close(fig)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -323,15 +329,22 @@ if __name__ == "__main__":
     parser.add_argument('--gpu', type=str, default='0', help='input video')
     args = parser.parse_args()
 
+    checkpoint = "../checkpoint/motionagformer-b-h36m.pth.tr"
+    frame_num = 243
+    generate_demo_video = True
+
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
 
-    video_path = './demo/video/' + args.video
+    video_path = args.video
+    model_name = checkpoint.split('/')[2].split('.')[0]
     video_name = video_path.split('/')[-1].split('.')[0]
-    output_dir = './demo/output/' + video_name + '/'
-
+    output_dir = 'output/' + video_name + '/' + model_name + '/'
+    st = time.time()
     get_pose2D(video_path, output_dir)
-    get_pose3D(video_path, output_dir)
+    get_pose3D(video_path, output_dir, checkpoint_3D=checkpoint, frame_num=frame_num, save_video=generate_demo_video)
     img2video(video_path, output_dir)
+    et = int(time.time() - st)
     print('Generating demo successful!')
+    print(f'Total time used: {et//3600}h {(et%3600)//60}m {(et%60)}s')
 
 

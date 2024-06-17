@@ -9,9 +9,9 @@ import random
 import pickle as pkl
 import argparse
 
-from lib.yolov3.util import *
-from lib.yolov3.darknet import Darknet
-from lib.yolov3 import preprocess
+from demo.lib.yolov3.util import *
+from demo.lib.yolov3.darknet import Darknet
+from demo.lib.yolov3 import preprocess
 
 cur_dir = os.path.dirname(os.path.realpath(__file__))
 project_root = os.path.join(cur_dir, '../../../')
@@ -85,7 +85,7 @@ def load_model(args=None, CUDA=None, inp_dim=416):
 
     # Set up the neural network
     model = Darknet(args.cfg_file)
-    model.load_weights(args.weight_file)
+    model.load_weights(args.weight_file[5:])
     # print("YOLOv3 network successfully loaded")
 
     model.net_info["height"] = inp_dim
