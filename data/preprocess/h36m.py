@@ -7,6 +7,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.getcwd())))
 
 from data.reader.h36m import DataReaderH36M
 from tqdm import tqdm
+from demo.demo_cfg import frame_num
 
 
 def save_clips(subset_name, root_path, train_data, train_labels):
@@ -27,7 +28,7 @@ def save_clips(subset_name, root_path, train_data, train_labels):
 def main():
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--n-frames", type=int, default=243)
+    parser.add_argument("--n-frames", type=int, default=frame_num)
     n_frames = parser.parse_args().n_frames
 
     datareader = DataReaderH36M(n_frames=n_frames, sample_stride=1, data_stride_train=n_frames // 3,

@@ -8,6 +8,7 @@ from model.modules.attention import Attention
 from model.modules.graph import GCN
 from model.modules.mlp import MLP
 from model.modules.tcn import MultiScaleTCN
+from demo.demo_cfg import frame_num
 
 
 class AGFormerBlock(nn.Module):
@@ -18,7 +19,7 @@ class AGFormerBlock(nn.Module):
     def __init__(self, dim, mlp_ratio=4., act_layer=nn.GELU, attn_drop=0., drop=0., drop_path=0.,
                  num_heads=8, qkv_bias=False, qk_scale=None, use_layer_scale=True, layer_scale_init_value=1e-5,
                  mode='spatial', mixer_type="attention", use_temporal_similarity=True,
-                 temporal_connection_len=1, neighbour_num=4, n_frames=243):
+                 temporal_connection_len=1, neighbour_num=4, n_frames=frame_num):
         super().__init__()
         self.norm1 = nn.LayerNorm(dim)
         if mixer_type == 'attention':
@@ -73,7 +74,7 @@ class MotionAGFormerBlock(nn.Module):
     def __init__(self, dim, mlp_ratio=4., act_layer=nn.GELU, attn_drop=0., drop=0., drop_path=0.,
                  num_heads=8, use_layer_scale=True, qkv_bias=False, qk_scale=None, layer_scale_init_value=1e-5,
                  use_adaptive_fusion=True, hierarchical=False, use_temporal_similarity=True,
-                 temporal_connection_len=1, use_tcn=False, graph_only=False, neighbour_num=4, n_frames=243):
+                 temporal_connection_len=1, use_tcn=False, graph_only=False, neighbour_num=4, n_frames=frame_num):
         super().__init__()
         self.hierarchical = hierarchical
         dim = dim // 2 if hierarchical else dim
@@ -163,7 +164,7 @@ class MotionAGFormerBlock(nn.Module):
 def create_layers(dim, n_layers, mlp_ratio=4., act_layer=nn.GELU, attn_drop=0., drop_rate=0., drop_path_rate=0.,
                   num_heads=8, use_layer_scale=True, qkv_bias=False, qkv_scale=None, layer_scale_init_value=1e-5,
                   use_adaptive_fusion=True, hierarchical=False, use_temporal_similarity=True,
-                  temporal_connection_len=1, use_tcn=False, graph_only=False, neighbour_num=4, n_frames=243):
+                  temporal_connection_len=1, use_tcn=False, graph_only=False, neighbour_num=4, n_frames=frame_num):
     """
     generates MotionAGFormer layers
     """
@@ -202,7 +203,7 @@ class MotionAGFormer(nn.Module):
                  drop=0., drop_path=0., use_layer_scale=True, layer_scale_init_value=1e-5, use_adaptive_fusion=True,
                  num_heads=4, qkv_bias=False, qkv_scale=None, hierarchical=False, num_joints=17,
                  use_temporal_similarity=True, temporal_connection_len=1, use_tcn=False, graph_only=False,
-                 neighbour_num=4, n_frames=243):
+                 neighbour_num=4, n_frames=frame_num):
         """
         :param n_layers: Number of layers.
         :param dim_in: Input dimension.

@@ -102,6 +102,7 @@ def get_pose2D(video_path, output_dir):
 
 
 def img2video(video_path, output_dir):
+    print("Generating demo video ...")
     cap = cv2.VideoCapture(video_path)
     fps = int(cap.get(cv2.CAP_PROP_FPS)) + 5
 
@@ -127,26 +128,30 @@ def showimage(ax, img):
     ax.imshow(img)
 
 
-def resample(n_frames):
-    even = np.linspace(0, n_frames, num=243, endpoint=False)
+def resample(n_frames, frame_num):
+    even = np.linspace(0, n_frames, num=frame_num, endpoint=False)
     result = np.floor(even)
     result = np.clip(result, a_min=0, a_max=n_frames - 1).astype(np.uint32)
     return result
 
 
-def turn_into_clips(keypoints):
+def turn_into_clips(keypoints, frame_num):
     clips = []
     n_frames = keypoints.shape[1]
-    if n_frames <= 243:
-        new_indices = resample(n_frames)
+    # if n_frames <= 243:
+    if n_frames <= frame_num:
+        new_indices = resample(n_frames, frame_num=frame_num)
         clips.append(keypoints[:, new_indices, ...])
         downsample = np.unique(new_indices, return_index=True)[1]
     else:
-        for start_idx in range(0, n_frames, 243):
-            keypoints_clip = keypoints[:, start_idx:start_idx + 243, ...]
+        # for start_idx in range(0, n_frames, 243):
+        for start_idx in range(0, n_frames, frame_num):
+            # keypoints_clip = keypoints[:, start_idx:start_idx + 243, ...]
+            keypoints_clip = keypoints[:, start_idx:start_idx + frame_num, ...]
             clip_length = keypoints_clip.shape[1]
-            if clip_length != 243:
-                new_indices = resample(clip_length)
+            # if clip_length != 243:
+            if clip_length != frame_num:
+                new_indices = resample(clip_length, frame_num=frame_num)
                 clips.append(keypoints_clip[:, new_indices, ...])
                 downsample = np.unique(new_indices, return_index=True)[1]
             else:
@@ -186,9 +191,9 @@ def flip_data(data, left_joints=[1, 2, 3, 14, 15, 16], right_joints=[4, 5, 6, 11
     return flipped_data
 
 @torch.no_grad()
-def get_pose3D(video_path, output_dir, checkpoint_3D, frame_num, save_video):
+def get_pose3D(video_path, output_dir, checkpoint_3D, frame_num, layer_num, dimension_feat, save_video):
     args, _ = argparse.ArgumentParser().parse_known_args()
-    args.n_layers, args.dim_in, args.dim_feat, args.dim_rep, args.dim_out = 16, 3, 128, 512, 3
+    args.n_layers, args.dim_in, args.dim_feat, args.dim_rep, args.dim_out = layer_num, 3, dimension_feat, 512, 3
     args.mlp_ratio, args.act_layer = 4, nn.GELU
     args.attn_drop, args.drop, args.drop_path = 0.0, 0.0, 0.0
     args.use_layer_scale, args.layer_scale_init_value, args.use_adaptive_fusion = True, 0.00001, True
@@ -219,7 +224,7 @@ def get_pose3D(video_path, output_dir, checkpoint_3D, frame_num, save_video):
     # keypoints = turn_into_h36m(keypoints)
     
 
-    clips, downsample = turn_into_clips(keypoints)
+    clips, downsample = turn_into_clips(keypoints, frame_num=frame_num)
 
 
     cap = cv2.VideoCapture(video_path)
@@ -278,8 +283,8 @@ def get_pose3D(video_path, output_dir, checkpoint_3D, frame_num, save_video):
 
             output_dir_3D = output_dir +'pose3D/'
             os.makedirs(output_dir_3D, exist_ok=True)
-            str(('%04d'% (idx * 243 + j)))
-            plt.savefig(output_dir_3D + str(('%04d'% (idx * 243 + j))) + '_3D.png', dpi=200, format='png', bbox_inches='tight')
+            str(('%04d'% (idx * frame_num + j)))
+            plt.savefig(output_dir_3D + str(('%04d'% (idx * frame_num + j))) + '_3D.png', dpi=200, format='png', bbox_inches='tight')
             plt.close(fig)
     np.savez_compressed(output_dir + 'all_3d_keypoints.npz', reconstruction=np.array(all_3d_keypoints))
         
@@ -328,23 +333,21 @@ if __name__ == "__main__":
     parser.add_argument('--video', type=str, default='sample_video.mp4', help='input video')
     parser.add_argument('--gpu', type=str, default='0', help='input video')
     args = parser.parse_args()
-
-    checkpoint = "../checkpoint/motionagformer-b-h36m.pth.tr"
-    frame_num = 243
-    generate_demo_video = True
-
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
+
+    from demo.demo_cfg import checkpoint, frame_num, layer_num, dimension_feat, generate_demo_video
 
     video_path = args.video
     model_name = checkpoint.split('/')[2].split('.')[0]
     video_name = video_path.split('/')[-1].split('.')[0]
-    output_dir = 'output/' + video_name + '/' + model_name + '/'
+    output_dir = 'output/' + video_name + '/' + model_name + '_' + frame_num + '/'
     st = time.time()
     get_pose2D(video_path, output_dir)
-    get_pose3D(video_path, output_dir, checkpoint_3D=checkpoint, frame_num=frame_num, save_video=generate_demo_video)
-    img2video(video_path, output_dir)
+    get_pose3D(video_path, output_dir, checkpoint_3D=checkpoint, frame_num=frame_num,
+               layer_num=layer_num, dimension_feat=dimension_feat, save_video=generate_demo_video)
+    img2video(video_path, output_dir) if generate_demo_video else None
     et = int(time.time() - st)
-    print('Generating demo successful!')
+    print('\nGenerating demo successful!')
     print(f'Total time used: {et//3600}h {(et%3600)//60}m {(et%60)}s')
 
 
