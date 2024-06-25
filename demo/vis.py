@@ -25,6 +25,20 @@ plt.switch_backend('agg')
 matplotlib.rcParams['pdf.fonttype'] = 42
 matplotlib.rcParams['ps.fonttype'] = 42
 
+
+def calculate_angle(A, B, C):
+    A, B, C = np.array(A), np.array(B), np.array(C)
+    AB, BC = B - A, C - B
+    dot_product = np.dot(AB, BC)
+    norm_AB, norm_BC = np.linalg.norm(AB), np.linalg.norm(BC)
+    cos_theta = dot_product / (norm_AB * norm_BC)
+    # cos_theta = np.clip(cos_theta, -1.0, 1.0)
+    angle_radians = np.arccos(cos_theta)
+    angle_degrees = np.degrees(angle_radians)
+
+    return angle_degrees  # angle_ABC
+
+
 def show2Dpose(kps, img):
     connections = [[0, 1], [1, 2], [2, 3], [0, 4], [4, 5],
                    [5, 6], [0, 7], [7, 8], [8, 9], [9, 10],
@@ -48,7 +62,7 @@ def show2Dpose(kps, img):
     return img
 
 
-def show3Dpose(vals, ax):
+def show3Dpose(vals, ax, show_label):
     ax.view_init(elev=15., azim=70)
 
     lcolor=(0,0,1)
@@ -62,6 +76,10 @@ def show3Dpose(vals, ax):
     for i in np.arange( len(I) ):
         x, y, z = [np.array( [vals[I[i], j], vals[J[i], j]] ) for j in range(3)]
         ax.plot(x, y, z, lw=2, color = lcolor if LR[i] else rcolor)
+
+    if show_label:
+        for i in range(vals.shape[0]):
+            ax.text(vals[i, 0], vals[i, 1], vals[i, 2], str(i), color='black', fontsize=9)
 
     RADIUS = 0.72
     RADIUS_Z = 0.7
@@ -249,6 +267,14 @@ def get_pose3D(video_path, output_dir, checkpoint_3D, frame_num, layer_num, dime
     
     print('\nGenerating 3D pose...')
     all_3d_keypoints = []
+    keypoint_names = [
+        'root', 'RHip', 'RKnee', 'RAnkle',   # 0 1 2 3
+        'LHip', 'LKnee', 'LAnkle',           # 4 5 6
+        'Spine', 'Chest', 'Neck', 'Head',  # 7 8 9 10
+        'LShoulder', 'LElbow', 'LWrist',   # 11 12 13
+        'RShoulder', 'RElbow', 'RWrist'    # 14 15 16
+    ]
+
     for idx, clip in enumerate(clips):
         input_2D = normalize_screen_coordinates(clip, w=img_size[1], h=img_size[0]) 
         input_2D_aug = flip_data(input_2D)
@@ -273,13 +299,24 @@ def get_pose3D(video_path, output_dir, checkpoint_3D, frame_num, layer_num, dime
             post_out[:, 2] -= np.min(post_out[:, 2])
             max_value = np.max(post_out)
             post_out /= max_value
-            all_3d_keypoints.append(post_out)
+
+            # Write 3D keypoints (x, y, z) into dict
+            keypoints_dict = {keypoint_names[i]: post_out[i] for i in range(len(keypoint_names))}
+
+            # Calculate angles write into dict (bug)
+            keypoints_dict["RHip_RKnee_RAnkle"] = calculate_angle(post_out[1], post_out[2], post_out[3])
+            keypoints_dict["LHip_LKnee_LAnkle"] = calculate_angle(post_out[4], post_out[5], post_out[6])
+            keypoints_dict["LShoulder_LElbow_LWrist"] = calculate_angle(post_out[11], post_out[12], post_out[13])
+            keypoints_dict["RShoulder_RElbow_RWrist"] = calculate_angle(post_out[14], post_out[15], post_out[16])
+            keypoints_dict["Root_Spine_Chest"] = calculate_angle(post_out[0], post_out[7], post_out[8])
+
+            all_3d_keypoints.append(keypoints_dict)
 
             fig = plt.figure(figsize=(9.6, 5.4))
             gs = gridspec.GridSpec(1, 1)
             gs.update(wspace=-0.00, hspace=0.05) 
             ax = plt.subplot(gs[0], projection='3d')
-            show3Dpose(post_out, ax)
+            show3Dpose(post_out, ax, show_label=False)
 
             output_dir_3D = output_dir +'pose3D/'
             os.makedirs(output_dir_3D, exist_ok=True)
@@ -287,9 +324,7 @@ def get_pose3D(video_path, output_dir, checkpoint_3D, frame_num, layer_num, dime
             plt.savefig(output_dir_3D + str(('%04d'% (idx * frame_num + j))) + '_3D.png', dpi=200, format='png', bbox_inches='tight')
             plt.close(fig)
     np.savez_compressed(output_dir + 'all_3d_keypoints.npz', reconstruction=np.array(all_3d_keypoints))
-        
 
-        
     print('Generating 3D pose successful!')
 
     ## all
@@ -327,6 +362,8 @@ def get_pose3D(video_path, output_dir, checkpoint_3D, frame_num, layer_num, dime
             plt.margins(0, 0)
             plt.savefig(output_dir_pose + str(('%04d'% i)) + '_pose.png', dpi=200, bbox_inches = 'tight')
             plt.close(fig)
+    else:
+        print('\nNot generating demo!')
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -338,16 +375,15 @@ if __name__ == "__main__":
     from demo.demo_cfg import checkpoint, frame_num, layer_num, dimension_feat, generate_demo_video
 
     video_path = args.video
-    model_name = checkpoint.split('/')[2].split('.')[0]
+    model_name = checkpoint.split('/')[-1].split('.')[0]
     video_name = video_path.split('/')[-1].split('.')[0]
-    output_dir = 'output/' + video_name + '/' + model_name + '_' + frame_num + '/'
+    output_dir = 'output/' + video_name + '/' + model_name + '_' + str(frame_num) + '/'
     st = time.time()
     get_pose2D(video_path, output_dir)
     get_pose3D(video_path, output_dir, checkpoint_3D=checkpoint, frame_num=frame_num,
                layer_num=layer_num, dimension_feat=dimension_feat, save_video=generate_demo_video)
     img2video(video_path, output_dir) if generate_demo_video else None
     et = int(time.time() - st)
-    print('\nGenerating demo successful!')
+    if not generate_demo_video:
+        print('\nGenerating demo successful!')
     print(f'Total time used: {et//3600}h {(et%3600)//60}m {(et%60)}s')
-
-
