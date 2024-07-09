@@ -14,8 +14,10 @@ checkpoint options:
 
 """
 
-checkpoint = "../checkpoint/motionagformer-s-h36m.pth.tr"
-frame_num = 81
-layer_num = 26
-dimension_feat = 64
+checkpoint = "../checkpoint/motionagformer-b-h36m.pth.tr"
+frame_num = 243
+layer_num = 16
+dimension_feat = 128
 generate_demo_video = True
+
+human_detector = "v8"  # v3 or v8

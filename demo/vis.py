@@ -11,6 +11,7 @@ import glob
 from tqdm import tqdm
 import copy
 import time
+import json
 
 sys.path.append(os.getcwd())
 from demo.lib.utils import normalize_screen_coordinates, camera_to_world
@@ -365,6 +366,22 @@ def get_pose3D(video_path, output_dir, checkpoint_3D, frame_num, layer_num, dime
     else:
         print('\nNot generating demo!')
 
+
+def extract_video_info(video_path):
+
+    cap = cv2.VideoCapture(video_path)
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    video_name = video_path.split('/')[-1].split('.')[0]
+    cap.release()
+
+    return {
+      "video_name": video_name,
+      "frame_count": total_frames,
+      "fps": fps
+    }
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--video', type=str, default='sample_video.mp4', help='input video')
@@ -382,8 +399,12 @@ if __name__ == "__main__":
     get_pose2D(video_path, output_dir)
     get_pose3D(video_path, output_dir, checkpoint_3D=checkpoint, frame_num=frame_num,
                layer_num=layer_num, dimension_feat=dimension_feat, save_video=generate_demo_video)
-    img2video(video_path, output_dir) if generate_demo_video else None
-    et = int(time.time() - st)
-    if not generate_demo_video:
+    if generate_demo_video:
+        img2video(video_path, output_dir)
+        json_path = os.path.join(output_dir, 'project_data.json')
+        video_info = extract_video_info(video_path)
+        with open(json_path, 'w') as f:
+            json.dump(video_info, f, indent=4)
         print('\nGenerating demo successful!')
+    et = int(time.time() - st)
     print(f'Total time used: {et//3600}h {(et%3600)//60}m {(et%60)}s')

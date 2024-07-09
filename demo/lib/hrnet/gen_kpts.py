@@ -7,6 +7,8 @@ import os
 import os.path as osp
 import argparse
 import time
+import warnings
+
 import numpy as np
 from tqdm import tqdm
 import json
@@ -28,6 +30,9 @@ model_dir = 'lib/checkpoint/'
 from demo.lib.yolov3.human_detector import load_model as yolo_model
 from demo.lib.yolov3.human_detector import yolo_human_det as yolo_det
 from demo.lib.sort.sort import Sort
+
+from demo.lib.yolov8.human_detector_v8 import detect_persons as yolo_det_v8
+from demo.demo_cfg import human_detector
 
 
 def parse_args():
@@ -92,7 +97,7 @@ def gen_video_kpts(video, det_dim=416, num_peroson=1, gen_output=False):
     cap = cv2.VideoCapture(video)
 
     # Loading detector and pose model, initialize sort for track
-    human_model = yolo_model(inp_dim=det_dim)
+    human_model = yolo_model(inp_dim=det_dim) if human_detector == "v3" else None
     pose_model = model_load(cfg)
     people_sort = Sort(min_hits=0)
 
@@ -105,8 +110,12 @@ def gen_video_kpts(video, det_dim=416, num_peroson=1, gen_output=False):
 
         if not ret:
             continue
-
-        bboxs, scores = yolo_det(frame, human_model, reso=det_dim, confidence=args.thred_score)
+        if human_detector == "v3":
+            bboxs, scores = yolo_det(frame, human_model, reso=det_dim, confidence=args.thred_score)
+        elif human_detector == "v8":
+            bboxs, scores = yolo_det_v8(frame, confidence=args.thred_score)
+        else:
+            warnings.WarningMessage("Wrong detection method")
 
         if bboxs is None or not bboxs.any():
             print('No person detected!')
