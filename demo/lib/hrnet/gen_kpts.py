@@ -105,6 +105,7 @@ def gen_video_kpts(video, det_dim=416, num_peroson=1, gen_output=False):
 
     kpts_result = []
     scores_result = []
+    total_track_bbox = []
     for ii in tqdm(range(video_length)):
         ret, frame = cap.read()
 
@@ -141,6 +142,7 @@ def gen_video_kpts(video, det_dim=416, num_peroson=1, gen_output=False):
         for bbox in people_track_:
             bbox = [round(i, 2) for i in list(bbox)]
             track_bboxs.append(bbox)
+            total_track_bbox.append(bbox)
 
         with torch.no_grad():
             # bbox is coordinate location
@@ -172,4 +174,4 @@ def gen_video_kpts(video, det_dim=416, num_peroson=1, gen_output=False):
     keypoints = keypoints.transpose(1, 0, 2, 3)  # (T, M, N, 2) --> (M, T, N, 2)
     scores = scores.transpose(1, 0, 2)  # (T, M, N) --> (M, T, N)
 
-    return keypoints, scores
+    return keypoints, scores, total_track_bbox

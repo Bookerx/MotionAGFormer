@@ -14,7 +14,7 @@ import time
 import json
 
 sys.path.append(os.getcwd())
-from demo.lib.utils import normalize_screen_coordinates, camera_to_world
+from demo.lib.utils import normalize_screen_coordinates, camera_to_world, normalize_height_coordinates
 from model.MotionAGFormer import MotionAGFormer
 
 import matplotlib
@@ -25,7 +25,7 @@ import matplotlib.gridspec as gridspec
 plt.switch_backend('agg')
 matplotlib.rcParams['pdf.fonttype'] = 42
 matplotlib.rcParams['ps.fonttype'] = 42
-
+bbox = []
 
 def calculate_angle(A, B, C):
     A, B, C = np.array(A), np.array(B), np.array(C)
@@ -40,7 +40,28 @@ def calculate_angle(A, B, C):
     return angle_degrees  # angle_ABC
 
 
-def show2Dpose(kps, img):
+def normalize_keypoints(keypoints, bbox):
+    """
+    将关键点归一化到边界框中。
+
+    参数:
+    keypoints (np.ndarray): 形状为 (17, 2) 的关键点数组，每行表示 (x, y) 坐标。
+    bbox (list or np.ndarray): 边界框，以 [x_min, y_min, x_max, y_max] 的形式。
+
+    返回:
+    np.ndarray: 归一化后的关键点，形状为 (17, 2)。
+    """
+    x_min, y_min, x_max, y_max = bbox
+
+    bbox_width = x_max - x_min
+    bbox_height = y_max - y_min
+
+    normalized_keypoints = (keypoints - np.array([x_min, y_min])) / np.array([bbox_width, bbox_height])
+
+    return normalized_keypoints
+
+
+def show2Dpose(kps, img, bboxes=None):
     connections = [[0, 1], [1, 2], [2, 3], [0, 4], [4, 5],
                    [5, 6], [0, 7], [7, 8], [8, 9], [9, 10],
                    [8, 11], [11, 12], [12, 13], [8, 14], [14, 15], [15, 16]]
@@ -59,6 +80,10 @@ def show2Dpose(kps, img):
         cv2.line(img, (start[0], start[1]), (end[0], end[1]), lcolor if LR[j] else rcolor, thickness)
         cv2.circle(img, (start[0], start[1]), thickness=-1, color=(0, 255, 0), radius=3)
         cv2.circle(img, (end[0], end[1]), thickness=-1, color=(0, 255, 0), radius=3)
+
+    if bboxes is not None:
+        x_min, y_min, x_max, y_max = bboxes
+        cv2.rectangle(img, (int(x_min), int(y_min)), (int(x_max), int(y_max)), thickness=2, color=(0, 255, 255))
 
     return img
 
@@ -107,9 +132,9 @@ def get_pose2D(video_path, output_dir):
     height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
 
     print('\nGenerating 2D pose...')
-    keypoints, scores = hrnet_pose(video_path, det_dim=416, num_peroson=1, gen_output=True)
+    keypoints, scores, t_bbox = hrnet_pose(video_path, det_dim=416, num_peroson=1, gen_output=True)
     keypoints, scores, valid_frames = h36m_coco_format(keypoints, scores)
-    
+    bbox.append(t_bbox)
     # Add conf score to the last dim
     keypoints = np.concatenate((keypoints, scores[..., None]), axis=-1)
 
@@ -258,8 +283,8 @@ def get_pose3D(video_path, output_dir, checkpoint_3D, frame_num, layer_num, dime
         img_size = img.shape
 
         input_2D = keypoints[0][i]
-
-        image = show2Dpose(input_2D, copy.deepcopy(img))
+        draw_bbox = bbox[0]
+        image = show2Dpose(input_2D, copy.deepcopy(img), draw_bbox[i])
 
         output_dir_2D = output_dir +'pose2D/'
         os.makedirs(output_dir_2D, exist_ok=True)
@@ -305,11 +330,17 @@ def get_pose3D(video_path, output_dir, checkpoint_3D, frame_num, layer_num, dime
             keypoints_dict = {keypoint_names[i]: post_out[i] for i in range(len(keypoint_names))}
 
             # Calculate angles write into dict (bug)
-            keypoints_dict["RHip_RKnee_RAnkle"] = calculate_angle(post_out[1], post_out[2], post_out[3])
-            keypoints_dict["LHip_LKnee_LAnkle"] = calculate_angle(post_out[4], post_out[5], post_out[6])
-            keypoints_dict["LShoulder_LElbow_LWrist"] = calculate_angle(post_out[11], post_out[12], post_out[13])
-            keypoints_dict["RShoulder_RElbow_RWrist"] = calculate_angle(post_out[14], post_out[15], post_out[16])
-            keypoints_dict["Root_Spine_Chest"] = calculate_angle(post_out[0], post_out[7], post_out[8])
+            keypoints_dict["RHip_RKnee_RAnkle"] = calculate_angle(post_out[1], post_out[2], post_out[3])  # RKnee
+            keypoints_dict["LHip_LKnee_LAnkle"] = calculate_angle(post_out[4], post_out[5], post_out[6])  # LKnee
+            keypoints_dict["LShoulder_LElbow_LWrist"] = calculate_angle(post_out[11], post_out[12], post_out[13])  # LElbow
+            keypoints_dict["RShoulder_RElbow_RWrist"] = calculate_angle(post_out[14], post_out[15], post_out[16])  # RElbow
+            # keypoints_dict["Root_Spine_Chest"] = calculate_angle(post_out[0], post_out[7], post_out[8])
+            keypoints_dict["Root_RHip_RKnee"] = calculate_angle(post_out[0], post_out[1], post_out[2])  # RHip
+            keypoints_dict["Root_LHip_LKnee"] = calculate_angle(post_out[0], post_out[4], post_out[5])  # LHip
+            keypoints_dict["Chest_RShoulder_RElbow"] = calculate_angle(post_out[8], post_out[14], post_out[15])  # RShoulder
+            keypoints_dict["Chest_LShoulder_LElbow"] = calculate_angle(post_out[8], post_out[11], post_out[12])  # LShoulder
+            keypoints_dict["Chest_Neck_Head"] = calculate_angle(post_out[8], post_out[9], post_out[10])  # Neck
+
 
             all_3d_keypoints.append(keypoints_dict)
 

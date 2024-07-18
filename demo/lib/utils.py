@@ -1,10 +1,20 @@
 import numpy as np
 import torch
 
+
 def normalize_screen_coordinates(X, w, h):
     assert X.shape[-1] == 2 or X.shape[-1] == 3
     result = np.copy(X)
     result[..., :2] = X[..., :2] / w * 2 - [1, h / w]
+    return result
+
+
+def normalize_height_coordinates(X, height, target_height=170):
+    assert X.shape[-1] == 2 or X.shape[-1] == 3
+    result = np.copy(X)
+    scale_factor = target_height / height
+    result[..., :2] = X[..., :2] * scale_factor
+
     return result
 
 
